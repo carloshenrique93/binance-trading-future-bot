@@ -1,0 +1,9 @@
+node_modules/
+.env
+.env.*
+*.log
+trading_logs.json
+bot_state.json
+dist/
+build/
+.DS_Store
