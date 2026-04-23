@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { createChart } from 'lightweight-charts';
-import { TrendingUp, Activity, DollarSign, List, Shield, Zap, Pause, Play, XCircle } from 'lucide-react';
+import { TrendingUp, Activity, DollarSign, List, Shield, Zap, Pause, Play, XCircle, Layers } from 'lucide-react';
 
 const API_BASE = 'http://localhost:5000/api';
 
@@ -63,12 +63,12 @@ export default function App() {
         const isLong = data.direction === 'LONG';
         const entry = data.entryPrice;
         
-        // Alvos atualizados para Nível 5: R$ 5,00 profit / R$ 5,00 stop
+        // Alvos atualizados para Nível 6: R$ 15,00 profit / R$ 10,00 stop
         // Com Banca 1000 e Posição 0.005 BTC (~$325 USD)
-        // Ratio aprox: 5 BRL / (0.005 * BTC_Price * 5.4) 
-        // Simplificando para aprox 0.003
-        const tpPrice = isLong ? entry * 1.003 : entry * 0.997;
-        const slPrice = isLong ? entry * 0.997 : entry * 1.003;
+        // Ratio aprox: 15 BRL / (0.005 * BTC_Price * 5.4) -> ~0.0085
+        // Ratio aprox: 10 BRL / (0.005 * BTC_Price * 5.4) -> ~0.006
+        const tpPrice = isLong ? entry * 1.0085 : entry * 0.9915;
+        const slPrice = isLong ? entry * 0.994 : entry * 1.006;
 
         entryLineRef.current = candleSeriesRef.current.createPriceLine({
             price: entry,
@@ -184,7 +184,7 @@ export default function App() {
           <div className="flex justify-center"><Shield className="w-16 h-16 text-blue-500 animate-pulse" /></div>
           <div className="text-center">
             <h1 className="text-3xl font-bold tracking-tight">Robô Binance</h1>
-            <p className="text-gray-400 text-sm mt-2">Nível 5: Quant-Master & Trend Filter</p>
+            <p className="text-gray-400 text-sm mt-2">Nível 7: Alpha Institutional & SMC</p>
           </div>
           <form onSubmit={handleLogin} className="space-y-4">
             <input 
@@ -208,10 +208,10 @@ export default function App() {
     <div className="min-h-screen p-4 md:p-8 space-y-6 bg-[#0c0c0c] text-white font-sans selection:bg-blue-500/30">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div className="group">
-          <h1 className="text-3xl font-black flex items-center gap-2 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-cyan-300 to-blue-500 animate-gradient">
-            <Zap className="w-8 h-8 text-yellow-400 fill-yellow-400" /> Scalper Nível 5
+          <h1 className="text-3xl font-black flex items-center gap-2 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 animate-gradient">
+            <Zap className="w-8 h-8 text-cyan-400 fill-cyan-400" /> Quantum Institutional Nível 8
           </h1>
-          <p className="text-gray-500 text-xs font-bold tracking-widest uppercase">Quant-Master: Tripla Confirmação Ativada</p>
+          <p className="text-gray-500 text-xs font-bold tracking-widest uppercase">CVD Delta + Z-Score Statistical Engine</p>
         </div>
         <div className="flex gap-3">
             <button 
@@ -229,33 +229,36 @@ export default function App() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="glass p-6 rounded-3xl border-b-4 border-blue-500/50 bg-gradient-to-b from-white/5 to-transparent">
-          <p className="text-gray-500 text-[10px] font-black uppercase mb-2 tracking-tighter">Banca Estimada (BRL)</p>
-          <div className="flex items-center justify-between">
-            <p className="text-3xl font-black tabular-nums">R$ {currentBalance.toFixed(2)}</p>
-            <div className="p-2 bg-blue-500/20 rounded-xl"><DollarSign className="text-blue-400 w-5 h-5" /></div>
-          </div>
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div className="glass p-6 rounded-3xl border-b-4 border-blue-500/50">
+          <p className="text-gray-500 text-[10px] font-black uppercase mb-2 tracking-tighter">Banca Estimada</p>
+          <p className="text-2xl font-black tabular-nums text-blue-400">R$ {currentBalance.toFixed(2)}</p>
         </div>
-        <div className="glass p-6 rounded-3xl border-b-4 border-green-500/50 bg-gradient-to-b from-white/5 to-transparent">
-          <p className="text-gray-500 text-[10px] font-black uppercase mb-2 tracking-tighter">Progresso do Dia</p>
-          <div className="flex items-center justify-between">
-            <p className={`text-3xl font-black tabular-nums ${stats?.dailyProfitBRL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              R$ {stats?.dailyProfitBRL?.toFixed(2) || '0.00'}
-            </p>
-            <div className="flex flex-col items-end">
-                <span className="text-[10px] font-bold text-gray-400">Meta: R$ 10.00</span>
-                <div className="p-1 bg-green-500/20 rounded-lg"><TrendingUp className="text-green-400 w-4 h-4" /></div>
-            </div>
-          </div>
+        <div className="glass p-6 rounded-3xl border-b-4 border-green-500/50">
+          <p className="text-gray-500 text-[10px] font-black uppercase mb-2 tracking-tighter">Lucro Hoje</p>
+          <p className={`text-2xl font-black tabular-nums ${stats?.dailyProfitBRL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+            R$ {stats?.dailyProfitBRL?.toFixed(2) || '0.00'}
+          </p>
         </div>
-        <div className="glass p-6 rounded-3xl border-b-4 border-yellow-500/50 bg-gradient-to-b from-white/5 to-transparent">
+        <div className="glass p-6 rounded-3xl border-b-4 border-cyan-500/50">
+          <p className="text-gray-500 text-[10px] font-black uppercase mb-2 tracking-tighter">Volume Delta (CVD)</p>
+          <p className={`text-2xl font-black ${stats?.cvd > 0 ? 'text-cyan-400' : 'text-red-400'}`}>
+            {stats?.cvd?.toFixed(1) || '0.0'}
+          </p>
+        </div>
+        <div className="glass p-6 rounded-3xl border-b-4 border-purple-500/50">
+          <p className="text-gray-500 text-[10px] font-black uppercase mb-2 tracking-tighter">Z-Score Quântico</p>
+          <p className={`text-2xl font-black ${Math.abs(stats?.zScore) > 2 ? 'text-orange-400' : 'text-blue-400'}`}>
+            {stats?.zScore?.toFixed(2) || '0.00'}
+          </p>
+        </div>
+        <div className="glass p-6 rounded-3xl border-b-4 border-orange-500/50">
           <p className="text-gray-500 text-[10px] font-black uppercase mb-2 tracking-tighter">Status Atual</p>
-          <div className="flex items-center justify-between">
-            <p className="text-xl font-black uppercase truncate mr-2">{stats?.inPosition ? `${stats.direction} @ ${stats.entryPrice?.toFixed(1)}` : 'Aguardando Sinal'}</p>
-            <div className="p-2 bg-yellow-500/20 rounded-xl"><Activity className="text-yellow-400 w-5 h-5" /></div>
-          </div>
+          <p className="text-sm font-black uppercase truncate text-orange-400">
+            {stats?.inPosition ? `${stats?.direction} @ ${stats?.entryPrice?.toFixed(1)}` : 'Quantum Scanning'}
+          </p>
         </div>
+      </div>
         <div className="flex flex-col gap-2">
             <button 
                 onClick={closePosition}
