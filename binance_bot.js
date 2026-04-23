@@ -1,7 +1,7 @@
 import ccxt from 'ccxt';
 import dotenv from 'dotenv';
 import fs from 'fs';
-import { RSI } from 'technicalindicators';
+import { RSI, EMA, BollingerBands } from 'technicalindicators';
 import express from 'express';
 import cors from 'cors';
 import basicAuth from 'express-basic-auth';
@@ -11,9 +11,10 @@ dotenv.config({ path: '.env.trading' });
 // Configuration
 const SYMBOL = 'BTC/USDT';
 const TIMEFRAME_ENTRY = '1m';
-const LEVERAGE = 3; 
-const BANK_BRL = parseFloat(process.env.INITIAL_BANK_BRL || 100.0);
-const DAILY_TARGET_BRL = parseFloat(process.env.DAILY_TARGET_BRL || 1.0);
+const LEVERAGE = 5; 
+const BANK_BRL = 1000.0; 
+const DAILY_TARGET_BRL = 10.0; 
+const POSITION_AMOUNT = 0.005; // Aprox. $325 (Seguro para banca de $185 com 5x alavancagem)
 const STATE_FILE = 'bot_state.json';
 const LOG_FILE = 'trading_logs.json';
 const PORT = process.env.PORT || 5000;
@@ -58,6 +59,7 @@ exchange.fetch = async function (url, method, headers, body) {
     }
 };
 // -------------------------------------------
+let isPaused = false;
 
 let priceHistory = [];
 let state = {
@@ -67,6 +69,7 @@ let state = {
     direction: '', 
     entryPrice: 0,
     amount: 0,
+    maxProfitReached: 0,
     trades: []
 };
 
@@ -96,19 +99,29 @@ async function setupTradeMode() {
 
 async function getIndicators() {
     try {
-        const ohlcv = await exchange.fetchOHLCV(SYMBOL, TIMEFRAME_ENTRY, undefined, 30);
+        const ohlcv = await exchange.fetchOHLCV(SYMBOL, TIMEFRAME_ENTRY, undefined, 250);
         const closes = ohlcv.map(x => x[4]);
         const currentPrice = closes[closes.length - 1];
-        const rsiValues = RSI.calculate({ values: closes, period: 7 }); 
         
-        priceHistory = ohlcv.map(x => ({ time: x[0] / 1000, value: x[4] }));
+        const rsiValues = RSI.calculate({ values: closes, period: 7 }); 
+        const ema200Values = EMA.calculate({ period: 200, values: closes });
+        const bbValues = BollingerBands.calculate({ period: 20, stdDev: 2, values: closes });
+        
+        priceHistory = ohlcv.map(x => ({ 
+            time: x[0] / 1000, 
+            open: x[1], 
+            high: x[2], 
+            low: x[3], 
+            close: x[4] 
+        })).slice(-30); // Mantemos apenas 30 para o dashboard não travar
         
         return {
             currentPrice: currentPrice,
-            rsi1m: rsiValues[rsiValues.length - 1]
+            rsi: rsiValues[rsiValues.length - 1],
+            ema200: ema200Values[ema200Values.length - 1],
+            bb: bbValues[bbValues.length - 1]
         };
     } catch (error) {
-        // Silenciamos erro de log para não poluir o terminal, apenas se for crítico
         if (error.message.includes('fetch failed')) return null;
         log(`Erro de Dados: ${error.message}`);
         return null;
@@ -123,43 +136,43 @@ async function run() {
         saveState();
     }
 
+    if (isPaused) return;
     if (state.dailyProfitBRL >= DAILY_TARGET_BRL) return;
 
     try {
         const data = await getIndicators();
-        if (!data) return;
+        if (!data || !data.ema200 || !data.bb) return;
 
-        const { currentPrice, rsi1m } = data;
-        const status = state.inPosition ? `🔘 EM ${state.direction}` : '🔍 MONITORANDO';
-        process.stdout.write(`\r${status} | P: ${currentPrice.toFixed(2)} | RSI: ${rsi1m?.toFixed(1)}    `);
+        const { currentPrice, rsi, ema200, bb } = data;
+        const status = isPaused ? '⏸️ PAUSADO' : (state.inPosition ? `🔘 EM ${state.direction}` : '🔍 MONITORANDO');
+        process.stdout.write(`\r${status} | P: ${currentPrice.toFixed(2)} | RSI: ${rsi?.toFixed(1)} | EMA200: ${ema200?.toFixed(2)}    `);
 
         if (!state.inPosition) {
             let side = '';
-            if (rsi1m < 40) side = 'LONG';
-            if (rsi1m > 60) side = 'SHORT';
+            // ESTRATÉGIA QUANT-MASTER: Tripla Confirmação
+            const isTrendUp = currentPrice > ema200;
+            const isTrendDown = currentPrice < ema200;
+            const isOversold = rsi < 40 && currentPrice <= bb.lower;
+            const isOverbought = rsi > 60 && currentPrice >= bb.upper;
+
+            if (isTrendUp && isOversold) side = 'LONG';
+            if (isTrendDown && isOverbought) side = 'SHORT';
 
             if (side) {
-                log(`🚀 Abrindo ${side}...`);
-                const marginToUse = 10; 
-                const amount = (marginToUse * LEVERAGE) / currentPrice;
-
+                log(`🚀 Abrindo ${side} (Tripla Confirmação)...`);
                 try {
                     const orderSide = side === 'LONG' ? 'buy' : 'sell';
-                    await exchange.createMarketOrder(SYMBOL, orderSide, amount);
+                    await exchange.createMarketOrder(SYMBOL, orderSide, POSITION_AMOUNT);
                     
                     state.inPosition = true;
                     state.direction = side;
                     state.entryPrice = currentPrice;
-                    state.amount = amount;
+                    state.amount = POSITION_AMOUNT;
+                    state.maxProfitReached = 0;
                     state.trades.push({ type: side, price: currentPrice, time: new Date().toISOString() });
                     
-                    const box = `
-┌────────────────────────────────────────────────────────┐
-│ 🔥 NOVO TRADE ABERTO: ${side}                   │
-├────────────────────────────────────────────────────────┤
-│ Preço: ${currentPrice.toFixed(2)} | Alavancagem: ${LEVERAGE}x        │
-└────────────────────────────────────────────────────────┘`;
-                    log(box, true);
+                    const statusMsg = `🚀 NOVO TRADE ABERTO: ${side} | Preço: ${currentPrice.toFixed(2)} | Alavancagem: ${LEVERAGE}x`;
+                    log(statusMsg);
                     saveState();
                 } catch (e) { log(`❌ Ordem negada: ${e.message}`); }
             }
@@ -171,27 +184,32 @@ async function run() {
             
             const currentBRLResult = priceChange * BANK_BRL * LEVERAGE;
 
-            const exitProfit = currentBRLResult >= 0.05;
-            const exitRSI = isLong ? rsi1m > 65 : rsi1m < 35;
-            const isStopLoss = currentBRLResult <= -0.50;
+            // Atualiza o lucro máximo para o Trailing Stop
+            if (currentBRLResult > state.maxProfitReached) {
+                state.maxProfitReached = currentBRLResult;
+            }
 
-            if (exitProfit || exitRSI || isStopLoss) {
-                const reason = isStopLoss ? '🛑 STOP' : (exitProfit ? '💰 LUCRO' : '⚠️ RSI');
+            // GESTÃO DE SAÍDA AVANÇADA
+            const takeProfit = currentBRLResult >= 5.00; // Alvo de lucro R$ 5,00
+            const stopLoss = currentBRLResult <= -5.00; // Stop Loss R$ 5,00
+            
+            // Trailing Stop: Se já lucrou R$ 1,00 e caiu R$ 0,50 do topo, fecha.
+            const trailingStop = state.maxProfitReached >= 1.00 && currentBRLResult < (state.maxProfitReached - 0.50);
+            
+            // Inversão de Tendência: Cruzou a EMA 200 contra a posição
+            const trendReversal = isLong ? currentPrice < ema200 : currentPrice > ema200;
+
+            if (takeProfit || stopLoss || trailingStop || trendReversal) {
+                const reason = stopLoss ? '🛑 STOP' : (trailingStop ? '📈 TRAILING' : (trendReversal ? '🔄 TENDÊNCIA' : '💰 ALVO'));
                 try {
                     const orderSide = isLong ? 'sell' : 'buy';
                     await exchange.createMarketOrder(SYMBOL, orderSide, state.amount, { 'reduceOnly': true });
                     
-                    const finalBanca = BANK_BRL + state.dailyProfitBRL + currentBRLResult;
-                    const box = `
-┌────────────────────────────────────────────────────────┐
-│ 🏁 POSIÇÃO ENCERRADA (${reason})                  │
-├────────────────────────────────────────────────────────┤
-│ Lucro: R$ ${currentBRLResult.toFixed(2)} | Meta Hoje: ${state.dailyProfitBRL.toFixed(2)}    │
-└────────────────────────────────────────────────────────┘`;
-                    log(box, true);
+                    state.dailyProfitBRL += currentBRLResult;
+                    const statusMsg = `🏁 POSIÇÃO ENCERRADA (${reason}) | Lucro: R$ ${currentBRLResult.toFixed(2)} | Total Hoje: R$ ${state.dailyProfitBRL.toFixed(2)} / Meta: R$ ${DAILY_TARGET_BRL.toFixed(2)}`;
+                    log(statusMsg);
 
                     state.inPosition = false;
-                    state.dailyProfitBRL += currentBRLResult;
                     state.trades.push({ type: 'CLOSE', price: currentPrice, profit: currentBRLResult, time: new Date().toISOString(), reason });
                     saveState();
                 } catch (e) { log(`❌ Erro no fechamento: ${e.message}`); }
@@ -200,15 +218,53 @@ async function run() {
     } catch (e) {}
 }
 
-log(`🚀 NÍVEL 4: MODO SILENCIOSO ATIVADO (ANTI-FIREWALL FINAL)`);
+log(`🚀 NÍVEL 5: QUANT-MASTER ATIVADO (Tripla Confirmação + Trailing Stop)`);
 const app = express();
 app.use(cors());
 app.use(basicAuth({ users: { 'admin': DASHBOARD_PWD }, challenge: true }));
-app.get('/api/stats', (req, res) => res.json({...state, priceHistory })); 
+app.get('/api/stats', (req, res) => res.json({...state, priceHistory, isPaused })); 
 app.get('/api/logs', (req, res) => {
     if (fs.existsSync(LOG_FILE)) res.json(fs.readFileSync(LOG_FILE, 'utf8').split('\n').filter(Boolean).slice(-60));
     else res.json([]);
 });
+
+app.post('/api/toggle-pause', (req, res) => {
+    isPaused = !isPaused;
+    log(isPaused ? '⏸️ Bot Pausado manualmente' : '▶️ Bot Retomado manualmente');
+    res.json({ isPaused });
+});
+
+app.post('/api/close-position', async (req, res) => {
+    if (!state.inPosition) return res.status(400).json({ error: 'Nenhuma posição aberta' });
+    log('⚠️ Fechamento manual solicitado via Dashboard');
+    
+    try {
+        const isLong = state.direction === 'LONG';
+        const orderSide = isLong ? 'sell' : 'buy';
+        await exchange.createMarketOrder(SYMBOL, orderSide, state.amount, { 'reduceOnly': true });
+        
+        // Calculamos o lucro aproximado no momento do fechamento manual
+        const data = await getIndicators();
+        let profit = 0;
+        if (data) {
+            const currentPrice = data.currentPrice;
+            const priceChange = isLong ? 
+                (currentPrice - state.entryPrice) / state.entryPrice :
+                (state.entryPrice - currentPrice) / state.entryPrice;
+            profit = priceChange * BANK_BRL * LEVERAGE;
+        }
+
+        state.inPosition = false;
+        state.dailyProfitBRL += profit;
+        state.trades.push({ type: 'CLOSE_MANUAL', time: new Date().toISOString(), profit });
+        saveState();
+        res.json({ success: true });
+    } catch (e) {
+        log(`❌ Erro no fechamento manual: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.listen(PORT, () => log(`🌐 API Dashboard ativa.`));
 
 setupTradeMode();
