@@ -18,6 +18,7 @@ const DAILY_TARGET_BRL = 30.0;
 const POSITION_AMOUNT = 0.005;
 const STOP_LOSS_BRL = 10.0;    
 const TAKE_PROFIT_BRL = 20.0;  // Matemática 2:1 (Elite)
+const DAILY_MAX_LOSS_BRL = -30.0; // LIMITE DE PERDA DIÁRIA (Segurança)
 const COOLDOWN_MINUTES = 10;   
 const Z_SCORE_THRESHOLD = 2.5; // Extremo Quântico
 
@@ -85,6 +86,7 @@ exchange.fetch = async function (url, method, headers, body) {
 // -------------------------------------------
 let isPaused = false;
 let latestFVGs = []; // Armazena os FVGs para a API
+let latestQuantumData = { cvd: 0, zScore: 0, trend15m: '?', trend5m: '?' }; // Para o Dashboard
 
 let priceHistory = [];
 let state = {
@@ -211,6 +213,10 @@ async function run() {
 
     if (isPaused) return;
     if (state.dailyProfitBRL >= DAILY_TARGET_BRL) return;
+    if (state.dailyProfitBRL <= DAILY_MAX_LOSS_BRL) {
+        if (Date.now() % 3600000 < 15000) log(`🛑 LIMITE DE PERDA DIÁRIA ATINGIDO (R$ ${state.dailyProfitBRL.toFixed(2)}). Robô em modo de segurança.`);
+        return;
+    }
 
     try {
         const data = await getIndicators();
@@ -218,6 +224,7 @@ async function run() {
 
             const { currentPrice, rsi, fvgs, cvd, zScore, trend15m, trend5m } = data;
             latestFVGs = fvgs;
+            latestQuantumData = { cvd, zScore, trend15m, trend5m }; // SINCRONIZA COM DASHBOARD
             const status = isPaused ? '⏸️ PAUSADO' : (state.inPosition ? `🔘 EM ${state.direction}` : '🔍 QUANTUM HUNT');
             
             if (Date.now() % 120000 < 15000) {
@@ -308,7 +315,7 @@ async function run() {
 const app = express();
 app.use(cors());
 app.use(basicAuth({ users: { 'admin': DASHBOARD_PWD }, challenge: true }));
-app.get('/api/stats', (req, res) => res.json({...state, priceHistory, isPaused, fvgs: latestFVGs })); 
+app.get('/api/stats', (req, res) => res.json({...state, priceHistory, isPaused, fvgs: latestFVGs, ...latestQuantumData })); 
 app.get('/api/logs', (req, res) => {
     if (fs.existsSync(LOG_FILE)) res.json(fs.readFileSync(LOG_FILE, 'utf8').split('\n').filter(Boolean).slice(-60));
     else res.json([]);

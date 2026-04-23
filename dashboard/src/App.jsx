@@ -268,7 +268,6 @@ export default function App() {
                 <XCircle className="w-5 h-5" /> FORÇAR FECHAMENTO
             </button>
         </div>
-      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 glass p-6 rounded-[2rem] relative overflow-hidden group">
