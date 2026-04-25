@@ -1,0 +1,17 @@
+{
+  "activeHedge": {
+    "symbol": "BANANAS31/USDT:USDT",
+    "amount": 19682.944994148314,
+    "entryPrice": 0.009399,
+    "notionalUSD": 185,
+    "startTime": "2026-04-24T01:22:26.084Z",
+    "fundingCollected": 0.1452624,
+    "rate": 0.0001,
+    "apy": "10.95"
+  },
+  "history": [],
+  "lastUpdate": "2026-04-25T02:13:50.608Z",
+  "nextFundingTime": 1777104000000,
+  "paused": false,
+  "dailyYield": 0
+}
