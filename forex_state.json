@@ -1,7 +1,7 @@
 {
   "balanceUSD": 500,
   "dailyProfitUSD": 698.7004897933275,
-  "lastUpdate": "23:14:16",
+  "lastUpdate": "12:23:04",
   "inPosition": true,
   "activeTrade": {
     "symbol": "XAU/USD",
@@ -1989,19 +1989,17 @@
     },
     "GOLD": {
       "symbol": "GOLD",
-      "currentPrice": 46.89,
-      "zScore": 2.681641095881177,
+      "currentPrice": 47.02,
+      "zScore": 3.0938367159443994,
       "trend": "UP",
       "signal": "SHORT",
-      "fvg": null,
+      "fvg": {
+        "type": "BULLISH",
+        "gap": 0.00999999999999801,
+        "top": 46.87,
+        "bottom": 46.86
+      },
       "priceHistory": [
-        {
-          "close": 46.48,
-          "high": 46.48,
-          "low": 46.48,
-          "open": 46.48,
-          "time": 1777067880
-        },
         {
           "close": 46.43,
           "high": 46.43,
@@ -2344,9 +2342,16 @@
           "low": 46.78,
           "open": 46.8,
           "time": 1777071480
+        },
+        {
+          "close": 47.02,
+          "high": 47.02,
+          "low": 46.87,
+          "open": 46.91,
+          "time": 1777071540
         }
       ]
     }
   },
-  "lastPulse": 1777083256641
+  "lastPulse": 1777216984820
 }

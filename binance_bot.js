@@ -24,11 +24,16 @@ if (bot) {
         const text = `📊 *BOT STATUS*\n\n💰 Lucro Hoje: $ ${state.dailyProfitUSD.toFixed(2)}\n🚀 Estado: ${status}`;
         bot.sendMessage(msg.chat.id, text, { parse_mode: 'Markdown' });
     });
+    
+    // Previne que falhas de conexão derrubem o robô
+    bot.on('polling_error', (error) => {
+        // Ignora silenciosamente erros de ECONNRESET/EFATAL
+    });
 }
 
 // Configuration
 const SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
-const Z_SCORE_THRESHOLD = 2.0;
+const Z_SCORE_THRESHOLD = 1.2; // Sensibilidade Agressiva (Micro-Scalping)
 const PORT = process.env.SCALPER_PORT || 5000;
 const DASHBOARD_PWD = process.env.DASHBOARD_PASSWORD || '1234';
 const LOG_FILE = 'trading_logs.json';
@@ -41,8 +46,17 @@ const exchange = new ccxt.binance({
     options: { defaultType: 'future' }
 });
 
+const publicExchange = new ccxt.binance({
+    enableRateLimit: true,
+    options: { defaultType: 'future' }
+});
+
 exchange.urls['api']['fapiPublic'] = 'https://demo-fapi.binance.com/fapi/v1';
 exchange.urls['api']['fapiPrivate'] = 'https://demo-fapi.binance.com/fapi/v1';
+publicExchange.urls['api']['fapiPublic'] = 'https://demo-fapi.binance.com/fapi/v1';
+exchange.urls['api']['public'] = 'https://demo-fapi.binance.com/fapi/v1';
+exchange.urls['api']['private'] = 'https://demo-fapi.binance.com/fapi/v1';
+publicExchange.urls['api']['public'] = 'https://demo-fapi.binance.com/fapi/v1';
 
 let state = {
     balanceUSD: 1000.0,
@@ -95,7 +109,7 @@ async function closePosition(reason = 'Saída de Emergência', profit = 0) {
 
 async function analyzeSymbol(symbol) {
     try {
-        const ohlcv = await exchange.fetchOHLCV(symbol, '1m', undefined, 50);
+        const ohlcv = await publicExchange.fetchOHLCV(symbol, '1m', undefined, 50);
         const closes = ohlcv.map(x => x[4]);
         const currentPrice = closes[closes.length - 1];
         
@@ -108,7 +122,10 @@ async function analyzeSymbol(symbol) {
         if (zScore < -Z_SCORE_THRESHOLD) signal = 'LONG';
 
         return { symbol, currentPrice, zScore, signal, trend: zScore > 0 ? 'UP' : 'DOWN', priceHistory: ohlcv.map(x => ({ time: x[0]/1000, open: x[1], high: x[2], low: x[3], close: x[4] })) };
-    } catch (e) { return null; }
+    } catch (e) { 
+        log(`⚠️ FALHA DE REDE: Não foi possível ler o gráfico de ${symbol} (${e.message})`);
+        return null; 
+    }
 }
 
 async function runScanner() {
@@ -127,8 +144,8 @@ async function runScanner() {
                 
                 const currentUSDResult = priceChange * 500; // Posição nominal de $500 (Margem de $100 x 5)
                 
-                const takeProfit = currentUSDResult >= 3.0;
-                const stopLoss = currentUSDResult <= -1.5;
+                const takeProfit = currentUSDResult >= 1.5; // Alvo Rápido (+$ 1.50)
+                const stopLoss = currentUSDResult <= -1.0;  // Stop Curto (-$ 1.00)
                 
                 if (takeProfit || stopLoss) {
                     const reason = stopLoss ? '🛑 STOP' : '💰 ALVO ATINGIDO';
@@ -163,8 +180,10 @@ async function openTrade(symbol, side, price) {
     }
     
     try {
+        await exchange.loadMarkets(); // CCXT uses internal caching automatically
+        
         const orderSide = side === 'LONG' ? 'buy' : 'sell';
-        const amount = exchange.priceToPrecision(symbol, 500 / price); // Posição Nominal $500
+        const amount = exchange.amountToPrecision(symbol, 500 / price); // Posição Nominal $500
         
         try { await exchange.setLeverage(5, symbol); } catch(e) {}
         await exchange.createMarketOrder(symbol, orderSide, parseFloat(amount));

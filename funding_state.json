@@ -5,13 +5,13 @@
     "entryPrice": 0.009399,
     "notionalUSD": 185,
     "startTime": "2026-04-24T01:22:26.084Z",
-    "fundingCollected": 0.1452624,
+    "fundingCollected": 0.21861879,
     "rate": 0.0001,
     "apy": "10.95"
   },
   "history": [],
-  "lastUpdate": "2026-04-25T02:13:50.608Z",
-  "nextFundingTime": 1777104000000,
+  "lastUpdate": "2026-04-26T15:22:39.978Z",
+  "nextFundingTime": 1777219200000,
   "paused": false,
   "dailyYield": 0
 }
