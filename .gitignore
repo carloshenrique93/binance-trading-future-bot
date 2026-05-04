@@ -7,3 +7,6 @@ bot_state.json
 dist/
 build/
 .DS_Store
+
+*_logs.json
+*_state.json

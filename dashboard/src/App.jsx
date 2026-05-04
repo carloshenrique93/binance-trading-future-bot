@@ -7,6 +7,55 @@ const API_BASE = 'http://localhost:5000/api';
 const FUNDING_API = 'http://localhost:5001/api';
 const FOREX_API = 'http://localhost:5002/api';
 
+function MiniChart({ symbol, data, inPosition, positionSide, entryPrice }) {
+    const containerRef = useRef();
+    const seriesRef = useRef();
+    const linesRef = useRef({ entry: null, tp: null, sl: null });
+
+    useEffect(() => {
+        if (!containerRef.current) return;
+        const chart = createChart(containerRef.current, {
+            layout: { background: { color: 'transparent' }, textColor: '#9ca3af' },
+            grid: { vertLines: { color: '#1f2937' }, horzLines: { color: '#1f2937' } },
+            timeScale: { timeVisible: true, secondsVisible: false },
+            width: containerRef.current.clientWidth,
+            height: inPosition ? 400 : 180, // Fica grande durante o trade!
+        });
+        seriesRef.current = chart.addCandlestickSeries({ upColor: '#10b981', downColor: '#ef4444' });
+        const handleResize = () => { if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth }); };
+        window.addEventListener('resize', handleResize);
+        return () => { window.removeEventListener('resize', handleResize); chart.remove(); };
+    }, [inPosition]); // Recria o gráfico com a altura nova se o status mudar
+
+    useEffect(() => {
+        if (seriesRef.current && data) {
+            seriesRef.current.setData(data);
+        }
+    }, [data]);
+
+    useEffect(() => {
+        if (seriesRef.current && inPosition && entryPrice) {
+            if (linesRef.current.entry) seriesRef.current.removePriceLine(linesRef.current.entry);
+            if (linesRef.current.tp) seriesRef.current.removePriceLine(linesRef.current.tp);
+            if (linesRef.current.sl) seriesRef.current.removePriceLine(linesRef.current.sl);
+
+            linesRef.current.entry = seriesRef.current.createPriceLine({ price: entryPrice, color: '#3b82f6', lineWidth: 2, title: 'ENTRY' });
+            const isLong = positionSide === 'BUY' || positionSide === 'LONG';
+            const tpPrice = entryPrice * (1 + (isLong ? 0.012 : -0.012));
+            const slPrice = entryPrice * (1 + (isLong ? -0.010 : 0.010));
+            linesRef.current.tp = seriesRef.current.createPriceLine({ price: tpPrice, color: '#10b981', lineWidth: 2, lineStyle: 2, title: 'TP (+$6.00)' });
+            linesRef.current.sl = seriesRef.current.createPriceLine({ price: slPrice, color: '#ef4444', lineWidth: 2, lineStyle: 2, title: 'SL (-$5.00)' });
+        } else if (seriesRef.current) {
+            if (linesRef.current.entry) seriesRef.current.removePriceLine(linesRef.current.entry);
+            if (linesRef.current.tp) seriesRef.current.removePriceLine(linesRef.current.tp);
+            if (linesRef.current.sl) seriesRef.current.removePriceLine(linesRef.current.sl);
+            linesRef.current = { entry: null, tp: null, sl: null };
+        }
+    }, [inPosition, positionSide, entryPrice]);
+
+    return <div ref={containerRef} className="w-full mt-4"></div>;
+}
+
 export default function App() {
   const [auth, setAuth] = useState(localStorage.getItem('bot_auth') || '');
   const [password, setPassword] = useState('');
@@ -21,9 +70,9 @@ export default function App() {
   const [connectionError, setConnectionError] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   
-  const chartContainerRef = useRef();
-  const candleSeriesRef = useRef();
-  const entryLineRef = useRef();
+  // Refs exclusivos do gráfico Forex
+  const forexChartContainerRef = useRef();
+  const forexCandleSeriesRef = useRef();
 
   const handleLogin = (e) => {
     e.preventDefault();
@@ -75,10 +124,14 @@ export default function App() {
       
       if (forexStatsRes.status === 'fulfilled') {
           setForexStats(forexStatsRes.value.data);
-          const symbols = ['XAUUSD', 'GOLD', 'XAUUSD.m'];
-          let xauData = null;
-          for(const s of symbols) { if(forexStatsRes.value.data.scannerData?.[s]?.priceHistory) { xauData = forexStatsRes.value.data.scannerData[s]; break; } }
-          if (activeTab === 'forex' && candleSeriesRef.current && xauData?.priceHistory) candleSeriesRef.current.setData(xauData.priceHistory);
+          // Atualiza o gráfico Forex com o símbolo ativo
+          const fData = forexStatsRes.value.data;
+          const activeForexSym = fData.activeSymbol || 'XAUUSD';
+          const xauData = fData.scannerData?.[activeForexSym];
+          if (activeTab === 'forex' && forexCandleSeriesRef.current && xauData?.priceHistory) {
+              forexCandleSeriesRef.current.setData(xauData.priceHistory);
+              // Linha de entrada se em posição
+          }
           setConnectionError(false);
       } else if (activeTab === 'forex') setConnectionError(true);
       
@@ -88,35 +141,26 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (activeTab === 'scalping' && candleSeriesRef.current && stats?.scannerData?.[stats.activeSymbol || 'BTC/USDT']?.priceHistory) {
-        candleSeriesRef.current.setData(stats.scannerData[stats.activeSymbol || 'BTC/USDT'].priceHistory);
-        if (stats.inPosition) {
-            if (entryLineRef.current) candleSeriesRef.current.removePriceLine(entryLineRef.current);
-            entryLineRef.current = candleSeriesRef.current.createPriceLine({ price: stats.entryPrice, color: '#3b82f6', lineWidth: 2, title: 'ENTRY' });
-        }
-    }
-  }, [stats, activeTab]);
-
-  useEffect(() => {
     if (auth) {
       const interval = setInterval(fetchData, 2000);
       return () => clearInterval(interval);
     }
   }, [auth, activeTab]);
 
+  // Inicializa o gráfico FOREX (ref independente)
   useEffect(() => {
-    if (auth && chartContainerRef.current) {
-        const chart = createChart(chartContainerRef.current, {
+    if (auth && activeTab === 'forex' && forexChartContainerRef.current && !forexCandleSeriesRef.current) {
+        const chart = createChart(forexChartContainerRef.current, {
             layout: { background: { color: 'transparent' }, textColor: '#9ca3af' },
             grid: { vertLines: { color: '#1f2937' }, horzLines: { color: '#1f2937' } },
-            timeScale: { timeVisible: true, secondsVisible: true },
-            width: chartContainerRef.current.clientWidth,
+            timeScale: { timeVisible: true, secondsVisible: false },
+            width: forexChartContainerRef.current.clientWidth,
             height: 380,
         });
-        candleSeriesRef.current = chart.addCandlestickSeries({ upColor: '#10b981', downColor: '#ef4444' });
-        const handleResize = () => chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+        forexCandleSeriesRef.current = chart.addCandlestickSeries({ upColor: '#f97316', downColor: '#ef4444', borderUpColor: '#f97316', borderDownColor: '#ef4444', wickUpColor: '#f97316', wickDownColor: '#ef4444' });
+        const handleResize = () => { if (forexChartContainerRef.current) chart.applyOptions({ width: forexChartContainerRef.current.clientWidth }); };
         window.addEventListener('resize', handleResize);
-        return () => { window.removeEventListener('resize', handleResize); chart.remove(); };
+        return () => { window.removeEventListener('resize', handleResize); forexCandleSeriesRef.current = null; chart.remove(); };
     }
   }, [auth, activeTab]);
 
@@ -184,18 +228,32 @@ export default function App() {
                                     <div className="flex justify-between text-[9px] font-black text-gray-500 uppercase"><span>Probabilidade (Z)</span><span>{data?.zScore?.toFixed(2)}</span></div>
                                     <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden"><div className={`h-full transition-all duration-1000 ${zVal > 2 ? 'bg-blue-500' : 'bg-blue-500/30'}`} style={{ width: `${Math.min(100, zVal * 40)}%` }}></div></div>
                                 </div>
+                                <MiniChart 
+                                    symbol={sym} 
+                                    data={data?.priceHistory} 
+                                    inPosition={stats?.inPosition && stats?.activeSymbol === sym} 
+                                    positionSide={stats?.positionSide} 
+                                    entryPrice={stats?.entryPrice} 
+                                />
                             </div>
                         )
                     })}
                 </div>
-                <div className="bg-[#111] p-8 rounded-[2rem] border border-white/5"><div ref={chartContainerRef} className="w-full"></div></div>
             </div>
             <div className="lg:col-span-4 space-y-6">
                 <div className="bg-[#111] p-8 rounded-3xl border border-white/5 bg-gradient-to-br from-blue-600/5 to-transparent">
-                    <div>
-                        <h4 className="text-gray-400 text-sm mb-1">Lucro do Dia (USD)</h4>
-                        <div className={`text-2xl font-bold ${stats?.dailyProfitUSD >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                            $ {stats?.dailyProfitUSD?.toFixed(2) || '0.00'}
+                    <div className="flex justify-between items-center">
+                        <div>
+                            <h4 className="text-gray-400 text-sm mb-1">Lucro do Dia (USD)</h4>
+                            <div className={`text-2xl font-bold ${stats?.dailyProfitUSD >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                $ {stats?.dailyProfitUSD?.toFixed(2) || '0.00'}
+                            </div>
+                        </div>
+                        <div className="text-right">
+                            <h4 className="text-gray-400 text-sm mb-1">Banca Total</h4>
+                            <div className="text-2xl font-bold text-blue-400">
+                                $ {stats?.balanceUSD?.toFixed(2) || '1000.00'}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -277,14 +335,14 @@ export default function App() {
                     })}
                 </div>
                 <div className="bg-[#111] p-8 rounded-[2rem] border border-white/5 relative overflow-hidden">
-                    {(new Date().getDay() === 0 || new Date().getDay() === 6 || (new Date().getHours() >= 18 && new Date().getDay() === 5)) && (
+                    {forexStats && forexStats.market_open === false && (
                         <div className="absolute inset-0 z-50 bg-black/80 flex flex-col items-center justify-center text-center p-10 backdrop-blur-sm">
                             <Clock className="w-16 h-16 text-orange-500 mb-4 animate-bounce" />
                             <h2 className="text-3xl font-black tracking-tighter text-white">MERCADO FECHADO</h2>
-                            <p className="text-gray-400 max-w-xs mt-2 text-sm font-bold uppercase tracking-widest">O Forex fecha aos fins de semana. Volta no Domingo às 18:00.</p>
+                            <p className="text-gray-400 max-w-xs mt-2 text-sm font-bold uppercase tracking-widest">O Forex fecha aos fins de semana. Volta no Domingo às 18:00 EST.</p>
                         </div>
                     )}
-                    <div ref={chartContainerRef} className="w-full"></div>
+                    <div ref={forexChartContainerRef} className="w-full" style={{minHeight: '380px'}}></div>
                 </div>
             </div>
             <div className="lg:col-span-4 space-y-6">
