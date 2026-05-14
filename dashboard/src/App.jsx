@@ -7,7 +7,7 @@ const API_BASE = 'http://localhost:5000/api';
 const FUNDING_API = 'http://localhost:5001/api';
 const FOREX_API = 'http://localhost:5002/api';
 
-function MiniChart({ symbol, data, inPosition, positionSide, entryPrice }) {
+function MiniChart({ symbol, data, inPosition, positionSide, entryPrice, maxProfitUSD, entryAtrUSD }) {
     const containerRef = useRef();
     const seriesRef = useRef();
     const linesRef = useRef({ entry: null, tp: null, sl: null });
@@ -41,17 +41,37 @@ function MiniChart({ symbol, data, inPosition, positionSide, entryPrice }) {
 
             linesRef.current.entry = seriesRef.current.createPriceLine({ price: entryPrice, color: '#3b82f6', lineWidth: 2, title: 'ENTRY' });
             const isLong = positionSide === 'BUY' || positionSide === 'LONG';
-            const tpPrice = entryPrice * (1 + (isLong ? 0.012 : -0.012));
-            const slPrice = entryPrice * (1 + (isLong ? -0.010 : 0.010));
-            linesRef.current.tp = seriesRef.current.createPriceLine({ price: tpPrice, color: '#10b981', lineWidth: 2, lineStyle: 2, title: 'TP (+$6.00)' });
-            linesRef.current.sl = seriesRef.current.createPriceLine({ price: slPrice, color: '#ef4444', lineWidth: 2, lineStyle: 2, title: 'SL (-$5.00)' });
+            const atrBase = entryAtrUSD || 1.5;
+            const feeOffset = 1.50;
+            
+            let dynamicStopLossUSD = -(atrBase * 6);
+            let slTitle = `SL (-$${Math.abs(dynamicStopLossUSD).toFixed(2)})`;
+            
+            if (maxProfitUSD >= Math.max(atrBase * 5, 6.0)) {
+                dynamicStopLossUSD = Math.max(atrBase * 3, 4.0);
+                slTitle = `🛡️ TS (+$${dynamicStopLossUSD.toFixed(2)})`;
+            } else if (maxProfitUSD >= Math.max(atrBase * 3, 3.5)) {
+                dynamicStopLossUSD = feeOffset;
+                slTitle = `🛡️ BE (+$${feeOffset.toFixed(2)})`;
+            }
+            
+            const tpTargetUSD = atrBase * 8;
+            
+            const tpPercent = tpTargetUSD / 1000.0;
+            const tpPrice = entryPrice * (1 + (isLong ? tpPercent : -tpPercent));
+            
+            const slPercent = dynamicStopLossUSD / 1000.0;
+            const slPrice = entryPrice * (1 + (isLong ? slPercent : -slPercent));
+
+            linesRef.current.tp = seriesRef.current.createPriceLine({ price: tpPrice, color: '#10b981', lineWidth: 2, lineStyle: 2, title: `TP (+$${tpTargetUSD.toFixed(2)})` });
+            linesRef.current.sl = seriesRef.current.createPriceLine({ price: slPrice, color: dynamicStopLossUSD >= 0 ? '#f59e0b' : '#ef4444', lineWidth: 2, lineStyle: 2, title: slTitle });
         } else if (seriesRef.current) {
             if (linesRef.current.entry) seriesRef.current.removePriceLine(linesRef.current.entry);
             if (linesRef.current.tp) seriesRef.current.removePriceLine(linesRef.current.tp);
             if (linesRef.current.sl) seriesRef.current.removePriceLine(linesRef.current.sl);
             linesRef.current = { entry: null, tp: null, sl: null };
         }
-    }, [inPosition, positionSide, entryPrice]);
+    }, [inPosition, positionSide, entryPrice, maxProfitUSD]);
 
     return <div ref={containerRef} className="w-full mt-4"></div>;
 }
@@ -233,7 +253,9 @@ export default function App() {
                                     data={data?.priceHistory} 
                                     inPosition={stats?.inPosition && stats?.activeSymbol === sym} 
                                     positionSide={stats?.positionSide} 
-                                    entryPrice={stats?.entryPrice} 
+                                    entryPrice={stats?.entryPrice}
+                                    maxProfitUSD={stats?.maxProfitUSD}
+                                    entryAtrUSD={stats?.entryAtrUSD}
                                 />
                             </div>
                         )

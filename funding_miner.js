@@ -34,9 +34,8 @@ const exchangeConfig = {
 const futuresExchange = new ccxt.binance(exchangeConfig);
 const spotExchange = new ccxt.binance({ ...exchangeConfig, options: { defaultType: 'spot' } });
 
-futuresExchange.urls['api']['fapiPublic'] = 'https://demo-fapi.binance.com/fapi/v1';
-futuresExchange.urls['api']['fapiPrivate'] = 'https://demo-fapi.binance.com/fapi/v1';
-spotExchange.setSandboxMode(true); // Demo Spot
+futuresExchange.enableDemoTrading(true);
+spotExchange.enableDemoTrading(true);
 
 let state = {
     activeHedge: null,

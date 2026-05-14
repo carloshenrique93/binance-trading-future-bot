@@ -10,3 +10,6 @@ build/
 
 *_logs.json
 *_state.json
+
+scratch*.js
+test_output.txt
